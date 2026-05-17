@@ -1,0 +1,30 @@
+{
+  "name": "rest-api-pressup2",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nirwana-tim/rest-api-pressup2.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/nirwana-tim/rest-api-pressup2/issues"
+  },
+  "homepage": "https://github.com/nirwana-tim/rest-api-pressup2#readme",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.105.4",
+    "assemblyai": "^4.33.2",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "groq-sdk": "^1.2.0"
+  }
+}
