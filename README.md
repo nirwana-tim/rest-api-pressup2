@@ -78,3 +78,5 @@ Endpoint internal yang dipanggil oleh `rest-api-pressup 1`. Memerlukan otentikas
    - Jika terjadi kesalahan fatal (error), status sesi di `game_sessions` dan `audio_recordings` akan otomatis diubah menjadi `'failed'`.
 3. **Penyimpanan Repeated Words**: Statistik kata yang berulang dari analisis Groq akan dihitung secara akurat dan disimpan langsung ke tabel terpisah `feedback_repeated_words`.
 4. **Penanganan Audio Hening (Silence)**: Jika hasil transkripsi audio hening/kosong (`""`), sistem akan menghindari error *deadlock* dengan melewati analisis AI dan langsung membuat entri `feedbacks` dengan pesan default (summary: *"Tidak ada suara atau percakapan yang terdeteksi pada rekaman audio."*) dan menandai status sesi sebagai `'completed'`.
+
+.
