@@ -49,13 +49,14 @@ export const processAudio = async (req, res) => {
 
   console.log(`[processAudio] Started processing for session: ${sessionId}`);
 
+  let transcriptText = '';
+  let transcribed = false;
+
+  // ============================================================
+  // TAHAP 1: SPEECH-TO-TEXT DENGAN ASSEMBLYAI & SIMPAN TRANSKRIP
+  // ============================================================
   try {
-    // ============================================
-    // STEP 1: TRANSCRIBE AUDIO WITH ASSEMBLYAI
-    // ============================================
-    let transcriptText = '';
     const keyCount = rotator.getKeyCount();
-    let transcribed = false;
 
     for (let attempt = 0; attempt < keyCount; attempt++) {
       const client = rotator.getNextClient();
@@ -106,7 +107,7 @@ export const processAudio = async (req, res) => {
     transcriptText = transcriptText.trim();
 
     // ============================================
-    // STEP 2: SAVE RAW TRANSCRIPT TO SUPABASE
+    // STEP 2: SAVE RAW TRANSCRIPT TO SUPABASE IMMEDIATELY
     // ============================================
     const { error: updateError } = await supabaseAdmin
       .from('audio_recordings')
@@ -120,8 +121,33 @@ export const processAudio = async (req, res) => {
 
     if (updateError) {
       console.warn('[Supabase] Failed to update audio_recordings:', updateError.message);
+      throw updateError;
     }
 
+    console.log(`[Supabase] Raw transcript saved successfully for session ${sessionId}`);
+
+  } catch (error) {
+    console.error(`[processAudio] Fatal speech-to-text error for session ${sessionId}:`, error);
+    
+    // Mark as failed in audio_recordings
+    await supabaseAdmin
+      .from('audio_recordings')
+      .update({ processing_status: 'failed' })
+      .eq('session_id', sessionId);
+
+    // Mark as failed in game_sessions
+    await supabaseAdmin
+      .from('game_sessions')
+      .update({ status: 'failed' })
+      .eq('id', sessionId);
+
+    return; // Keluar lebih awal karena transkripsi gagal
+  }
+
+  // ============================================================
+  // TAHAP 2: FEEDBACK ANALYSIS DENGAN GROQ AI
+  // ============================================================
+  try {
     let finalScore = 0;
 
     // ============================================
@@ -272,16 +298,10 @@ export const processAudio = async (req, res) => {
 
     console.log(`[processAudio] Finished processing for session: ${sessionId}`);
 
-  } catch (error) {
-    console.error(`[processAudio] Error processing session ${sessionId}:`, error);
+  } catch (groqError) {
+    console.error(`[processAudio] Non-fatal Groq AI feedback error for session ${sessionId}:`, groqError);
     
-    // Mark as failed in audio_recordings
-    await supabaseAdmin
-      .from('audio_recordings')
-      .update({ processing_status: 'failed' })
-      .eq('session_id', sessionId);
-
-    // Mark as failed in game_sessions
+    // Jika Groq gagal, kita tetap ubah status game_session menjadi failed, namun audio_recording tetap completed (sukses transkrip)
     await supabaseAdmin
       .from('game_sessions')
       .update({ status: 'failed' })
