@@ -72,6 +72,204 @@ function normalizeMrOwiTips(tips = {}) {
   };
 }
 
+function statusFromScore(score) {
+  if (score >= 80) return 'good';
+  if (score >= 60) return 'warning';
+  return 'bad';
+}
+
+function formatDuration(seconds = 0) {
+  const safeSeconds = Math.max(0, Math.round(seconds));
+  const minutes = Math.floor(safeSeconds / 60);
+  const secs = String(safeSeconds % 60).padStart(2, '0');
+  return `${minutes}:${secs}`;
+}
+
+function buildTranscriptTokens(transcriptText, fillerWords = [], repeatedWords = []) {
+  const fillerSet = new Set(fillerWords.map(word => String(word).toLowerCase()));
+  const repeatedSet = new Set(repeatedWords.map(word => String(word).toLowerCase()));
+
+  return transcriptText
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(text => {
+      const normalized = text.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+      const tags = [];
+      if (fillerSet.has(normalized)) tags.push('filler');
+      if (repeatedSet.has(normalized)) tags.push('waste');
+      return { text, tags };
+    });
+}
+
+function countWords(items = []) {
+  return items.reduce((acc, word) => {
+    const key = String(word).toLowerCase();
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+}
+
+function buildPresentationEvaluation({
+  sessionId,
+  transcriptText,
+  duration,
+  analysis,
+  telemetry,
+  mrOwiTips
+}) {
+  const fillerWords = analysis.filler_words || [];
+  const repeatedWords = analysis.repeated_words || [];
+  const fillerCount = analysis.filler_count || fillerWords.length;
+  const totalWords = analysis.total_words || transcriptText.split(/\s+/).filter(Boolean).length;
+  const durationSeconds = Math.max(Number(duration) || 1, 1);
+  const averageWpm = Math.round((totalWords / durationSeconds) * 60);
+  const fillerScore = Math.max(0, 100 - fillerCount * 5);
+  const wordWasteScore = Math.max(0, 100 - repeatedWords.length * 6);
+  const eyeContact = telemetry?.eyeContact;
+  const eyeScore = eyeContact?.focusScore ?? 0;
+  const fillerCountMap = countWords(fillerWords);
+  const fillerSummary = Object.entries(fillerCountMap).map(([word, count]) => ({ word, count }));
+  const topFillers = fillerSummary.slice(0, 2).map(item => `"${item.word}"`).join(' dan ');
+  const transcript = buildTranscriptTokens(transcriptText, fillerWords, repeatedWords);
+  const tempoLabel = averageWpm < 100 ? 'slow' : averageWpm > 160 ? 'fast' : 'normal';
+
+  return {
+    sessionId,
+    overallScore: analysis.overall_score || 0,
+    transcriptText,
+    createdAt: new Date().toISOString(),
+    summary: [
+      {
+        id: 'intonation',
+        title: 'Intonasi',
+        score: analysis.overall_score || 0,
+        status: statusFromScore(analysis.overall_score || 0),
+        evaluationNote: 'Intonasi dievaluasi dari kelancaran audio dan variasi penyampaian selama presentasi.'
+      },
+      {
+        id: 'eyeContact',
+        title: 'Kontak Mata',
+        score: eyeScore,
+        status: eyeContact ? statusFromScore(eyeScore) : 'unavailable',
+        evaluationNote: eyeContact
+          ? `Kontak mata terjaga selama ${formatDuration(eyeContact.focusDuration)}, dengan ${formatDuration(eyeContact.unfocusDuration)} momen tidak fokus.`
+          : 'Data kontak mata belum tersedia karena tracking wajah tidak aktif selama sesi.'
+      },
+      {
+        id: 'tempo',
+        title: 'Tempo',
+        score: statusFromScore(averageWpm >= 100 && averageWpm <= 160 ? 90 : 65) === 'good' ? 90 : 65,
+        status: averageWpm >= 100 && averageWpm <= 160 ? 'good' : 'warning',
+        evaluationNote: `Tempo bicara berada di ${averageWpm} kata per menit dan tergolong ${tempoLabel === 'normal' ? 'stabil' : tempoLabel === 'fast' ? 'cepat' : 'lambat'}.`
+      },
+      {
+        id: 'fillerWords',
+        title: 'Kata Jeda',
+        score: fillerScore,
+        status: statusFromScore(fillerScore),
+        evaluationNote: fillerCount > 0
+          ? `Terdapat filler word seperti ${topFillers || 'kata jeda'} sebanyak ${fillerCount} kali saat presentasi.`
+          : 'Tidak ditemukan kata jeda yang mengganggu selama presentasi.'
+      },
+      {
+        id: 'articulation',
+        title: 'Artikulasi',
+        score: analysis.overall_score || 0,
+        status: 'warning',
+        evaluationNote: 'Artikulasi masih dinilai dari kualitas transcript karena confidence per kata belum tersedia.'
+      },
+      {
+        id: 'wordWaste',
+        title: 'Pemborosan Kata',
+        score: wordWasteScore,
+        status: statusFromScore(wordWasteScore),
+        evaluationNote: repeatedWords.length > 0
+          ? `Terdapat ${repeatedWords.length} kata berulang yang berpotensi membuat penyampaian kurang ringkas.`
+          : 'Tidak ditemukan pemborosan kata yang menonjol pada transcript.'
+      }
+    ],
+    details: {
+      intonation: {
+        chart: [],
+        metrics: {},
+        aiTips: mrOwiTips.intonasi
+      },
+      eyeContact: {
+        events: eyeContact?.events || [],
+        focusDuration: eyeContact?.focusDuration || 0,
+        unfocusDuration: eyeContact?.unfocusDuration || 0,
+        aiTips: [
+          'Arahkan wajah ke kamera saat menyampaikan poin utama.',
+          'Gunakan catatan singkat agar tidak terlalu sering melihat ke luar kamera.'
+        ]
+      },
+      tempo: {
+        chart: [
+          { second: Math.round(durationSeconds * 0.33), wpm: averageWpm },
+          { second: Math.round(durationSeconds * 0.66), wpm: averageWpm },
+          { second: durationSeconds, wpm: averageWpm }
+        ],
+        averageWpm,
+        segments: [
+          {
+            startSecond: 0,
+            endSecond: durationSeconds,
+            label: tempoLabel,
+            wpm: averageWpm
+          }
+        ],
+        aiTips: [
+          'Jaga tempo di kisaran 100 sampai 160 kata per menit.',
+          'Tambahkan jeda singkat setelah menyampaikan poin penting.'
+        ]
+      },
+      fillerWords: {
+        transcript,
+        fillerWords: fillerSummary,
+        totalCount: fillerCount,
+        aiTips: mrOwiTips.kata_jeda
+      },
+      articulation: {
+        unclearSegments: [],
+        aiTips: mrOwiTips.artikulasi
+      },
+      wordWaste: {
+        transcript,
+        wastedPhrases: repeatedWords.map(word => ({
+          text: word,
+          reason: 'Kata ini terdeteksi berulang dan berpotensi membuat kalimat kurang efisien.'
+        })),
+        aiTips: mrOwiTips.pemborosan_kata
+      }
+    }
+  };
+}
+
+async function upsertFeedback(feedbackData) {
+  const { data, error } = await supabaseAdmin
+    .from('feedbacks')
+    .upsert(feedbackData, { onConflict: 'session_id' })
+    .select()
+    .single();
+
+  if (!error) return { data, error };
+
+  if (
+    feedbackData.evaluation_json &&
+    (error.message?.includes('evaluation_json') || error.message?.includes('column'))
+  ) {
+    const { evaluation_json, ...fallbackData } = feedbackData;
+    console.warn('[Supabase] evaluation_json column is unavailable, retrying feedback save without it.');
+    return supabaseAdmin
+      .from('feedbacks')
+      .upsert(fallbackData, { onConflict: 'session_id' })
+      .select()
+      .single();
+  }
+
+  return { data, error };
+}
+
 export const processAudio = async (req, res) => {
   const secretKey = req.headers['x-api-secret'];
   
@@ -80,7 +278,7 @@ export const processAudio = async (req, res) => {
     return res.status(401).json({ error: 'Unauthorized: Invalid or missing API secret key' });
   }
 
-  const { sessionId, audio_url, duration } = req.body;
+  const { sessionId, audio_url, duration, telemetry } = req.body;
 
   if (!sessionId || !audio_url) {
     return res.status(400).json({ error: 'sessionId and audio_url are required' });
@@ -275,6 +473,14 @@ export const processAudio = async (req, res) => {
         general: analysis.improvement_tips || 'Terus berlatih.',
         mr_owi_tips: mrOwiTips
       };
+      const evaluation = buildPresentationEvaluation({
+        sessionId,
+        transcriptText,
+        duration,
+        analysis,
+        telemetry,
+        mrOwiTips
+      });
 
       // ============================================
       // STEP 4: SAVE FEEDBACK TO SUPABASE
@@ -286,14 +492,11 @@ export const processAudio = async (req, res) => {
         summary: analysis.summary || 'Tidak ada ringkasan',
         improvement_tips: JSON.stringify(structuredImprovementTips),
         total_words: analysis.total_words || transcriptText.split(' ').length,
+        evaluation_json: evaluation,
       };
 
       // Upsert feedback
-      const { data: feedback, error: feedbackError } = await supabaseAdmin
-        .from('feedbacks')
-        .upsert(feedbackData, { onConflict: 'session_id' })
-        .select()
-        .single();
+      const { data: feedback, error: feedbackError } = await upsertFeedback(feedbackData);
 
       if (feedbackError) {
         console.warn('[Supabase] Failed to save feedback:', feedbackError.message);
@@ -344,12 +547,24 @@ export const processAudio = async (req, res) => {
           general: 'Silakan coba berbicara lebih keras atau periksa mikrofon Anda.',
           mr_owi_tips: normalizeMrOwiTips()
         }),
-        total_words: 0
+        total_words: 0,
+        evaluation_json: buildPresentationEvaluation({
+          sessionId,
+          transcriptText,
+          duration,
+          analysis: {
+            filler_words: [],
+            filler_count: 0,
+            repeated_words: [],
+            total_words: 0,
+            overall_score: 0
+          },
+          telemetry,
+          mrOwiTips: normalizeMrOwiTips()
+        })
       };
 
-      const { error: feedbackError } = await supabaseAdmin
-        .from('feedbacks')
-        .upsert(feedbackData, { onConflict: 'session_id' });
+      const { error: feedbackError } = await upsertFeedback(feedbackData);
 
       if (feedbackError) {
         console.warn('[Supabase] Failed to save default feedback:', feedbackError.message);
