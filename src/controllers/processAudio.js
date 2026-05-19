@@ -30,6 +30,48 @@ class ApiKeyRotator {
 
 const rotator = new ApiKeyRotator();
 
+const DEFAULT_MR_OWI_TIPS = {
+  artikulasi: [
+    'Hindari menelan akhir kata atau berbicara terlalu cepat sehingga pengucapan terdengar samar.',
+    'Gerakan mulut yang jelas membantu suara terdengar lebih tegas dan mudah dipahami.',
+    'Ulangi kata atau istilah penting beberapa kali agar lidah terbiasa dan tidak terbata-bata saat menyampaikannya.'
+  ],
+  intonasi: [
+    'Beri penekanan pada kata atau poin penting agar pesan lebih jelas dan tidak terdengar datar.',
+    'Variasikan nada saat menjelaskan bagian penting atau saat berpindah topik agar penyampaian lebih hidup. Hindari nada monoton.',
+    'Jangan berbicara dengan satu nada terus-menerus, karena dapat membuat audiens cepat bosan atau kehilangan fokus.'
+  ],
+  kata_jeda: [
+    'Saat butuh waktu berpikir, lebih baik berhenti sejenak daripada mengisi dengan kata pengisi. Diam singkat terlihat lebih percaya diri.',
+    'Siapkan penghubung seperti "selanjutnya", "berikutnya", atau "jadi" agar alur bicara lebih terstruktur dan tidak terputus-putus.',
+    'Dengarkan kembali rekaman presentasi untuk menyadari seberapa sering filler muncul, lalu perbaiki secara bertahap.'
+  ],
+  pemborosan_kata: [
+    'Hindari penggunaan ganda seperti "sangat sekali", "benar-benar sangat", atau "agar supaya". Pilih salah satu yang paling kuat.',
+    'Hindari pengulangan makna dalam satu kalimat. Jika pesan sudah jelas, tidak perlu ditambah kata yang hanya memperpanjang tanpa menambah arti.'
+  ]
+};
+
+function normalizeTipList(value, fallback) {
+  if (!Array.isArray(value)) return fallback;
+
+  const cleaned = value
+    .filter(item => typeof item === 'string')
+    .map(item => item.trim())
+    .filter(Boolean);
+
+  return cleaned.length > 0 ? cleaned : fallback;
+}
+
+function normalizeMrOwiTips(tips = {}) {
+  return {
+    artikulasi: normalizeTipList(tips.artikulasi, DEFAULT_MR_OWI_TIPS.artikulasi),
+    intonasi: normalizeTipList(tips.intonasi, DEFAULT_MR_OWI_TIPS.intonasi),
+    kata_jeda: normalizeTipList(tips.kata_jeda, DEFAULT_MR_OWI_TIPS.kata_jeda),
+    pemborosan_kata: normalizeTipList(tips.pemborosan_kata, DEFAULT_MR_OWI_TIPS.pemborosan_kata)
+  };
+}
+
 export const processAudio = async (req, res) => {
   const secretKey = req.headers['x-api-secret'];
   
@@ -163,6 +205,12 @@ export const processAudio = async (req, res) => {
       2. Analisis tingkat kelancaran berbicara (apakah ada ketidaklancaran/gagap).
       3. Berikan rekomendasi/referensi kata alternatif yang lebih baik untuk menggantikan kata-kata yang kurang tepat.
       4. Berikan total jumlah kata dan skor keseluruhan (0-100).
+      5. Wajib keluarkan 4 output teks tips "Tips dari Mr Owi":
+         - artikulasi: tips agar pengucapan lebih jelas seperti contoh kartu artikulasi.
+         - intonasi: tips agar nada suara tidak monoton seperti contoh kartu intonasi.
+         - kata_jeda: tips untuk mengurangi filler words/kata jeda.
+         - pemborosan_kata: tips untuk mengurangi kata berlebihan atau pengulangan makna.
+      Setiap kategori tips berisi 2-3 kalimat singkat dalam Bahasa Indonesia.
       
       Output harus dalam format JSON yang valid dengan struktur berikut:
       {
@@ -173,6 +221,27 @@ export const processAudio = async (req, res) => {
         "overall_score": 85,
         "summary": "Ringkasan evaluasi...",
         "improvement_tips": "Saran perbaikan...",
+        "mr_owi_tips": {
+          "artikulasi": [
+            "Hindari menelan akhir kata atau berbicara terlalu cepat sehingga pengucapan terdengar samar.",
+            "Gerakan mulut yang jelas membantu suara terdengar lebih tegas dan mudah dipahami.",
+            "Ulangi kata atau istilah penting beberapa kali agar lidah terbiasa dan tidak terbata-bata saat menyampaikannya."
+          ],
+          "intonasi": [
+            "Beri penekanan pada kata atau poin penting agar pesan lebih jelas dan tidak terdengar datar.",
+            "Variasikan nada saat menjelaskan bagian penting atau saat berpindah topik agar penyampaian lebih hidup. Hindari nada monoton.",
+            "Jangan berbicara dengan satu nada terus-menerus, karena dapat membuat audiens cepat bosan atau kehilangan fokus."
+          ],
+          "kata_jeda": [
+            "Saat butuh waktu berpikir, lebih baik berhenti sejenak daripada mengisi dengan kata pengisi.",
+            "Siapkan penghubung seperti selanjutnya, berikutnya, atau jadi agar alur bicara lebih terstruktur.",
+            "Dengarkan kembali rekaman presentasi untuk menyadari seberapa sering filler muncul."
+          ],
+          "pemborosan_kata": [
+            "Hindari penggunaan ganda seperti sangat sekali, benar-benar sangat, atau agar supaya.",
+            "Hindari pengulangan makna dalam satu kalimat jika pesan sudah jelas."
+          ]
+        },
         "vocabulary_references": [
           {"original": "kayak", "suggestion": "seperti"},
           {"original": "anu", "suggestion": "(hapus kata ini atau ganti dengan jeda diam)"}
@@ -201,6 +270,11 @@ export const processAudio = async (req, res) => {
       }
 
       finalScore = analysis.overall_score || 0;
+      const mrOwiTips = normalizeMrOwiTips(analysis.mr_owi_tips);
+      const structuredImprovementTips = {
+        general: analysis.improvement_tips || 'Terus berlatih.',
+        mr_owi_tips: mrOwiTips
+      };
 
       // ============================================
       // STEP 4: SAVE FEEDBACK TO SUPABASE
@@ -210,7 +284,7 @@ export const processAudio = async (req, res) => {
         filler_score: Math.max(0, 100 - (analysis.filler_count || 0) * 5),
         overall_score: finalScore,
         summary: analysis.summary || 'Tidak ada ringkasan',
-        improvement_tips: analysis.improvement_tips || 'Terus berlatih.',
+        improvement_tips: JSON.stringify(structuredImprovementTips),
         total_words: analysis.total_words || transcriptText.split(' ').length,
       };
 
@@ -266,7 +340,10 @@ export const processAudio = async (req, res) => {
         filler_score: 100,
         overall_score: 0,
         summary: 'Tidak ada suara atau percakapan yang terdeteksi pada rekaman audio.',
-        improvement_tips: 'Silakan coba berbicara lebih keras atau periksa mikrofon Anda.',
+        improvement_tips: JSON.stringify({
+          general: 'Silakan coba berbicara lebih keras atau periksa mikrofon Anda.',
+          mr_owi_tips: normalizeMrOwiTips()
+        }),
         total_words: 0
       };
 
