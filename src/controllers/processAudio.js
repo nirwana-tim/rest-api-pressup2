@@ -2,10 +2,28 @@ import { AssemblyAI } from 'assemblyai';
 import Groq from 'groq-sdk';
 import { supabaseAdmin } from '../config/supabase.js';
 
-// Initialize Groq
-const groq = new Groq({
-  apiKey: process.env.GROQ_API_KEY,
-});
+// Groq ApiKeyRotator
+class GroqApiKeyRotator {
+  constructor() {
+    this.keys = process.env.GROQ_API_KEY?.split(',').map(k => k.trim()) || [];
+    this.currentIndex = 0;
+  }
+
+  getNextClient() {
+    if (this.keys.length === 0) {
+      throw new Error('No API keys found in .env (GROQ_API_KEY)');
+    }
+    const key = this.keys[this.currentIndex];
+    this.currentIndex = (this.currentIndex + 1) % this.keys.length;
+    return new Groq({ apiKey: key });
+  }
+
+  getKeyCount() {
+    return this.keys.length;
+  }
+}
+
+const groqRotator = new GroqApiKeyRotator();
 
 // AssemblyAI ApiKeyRotator reference logic
 class ApiKeyRotator {
@@ -252,22 +270,7 @@ async function upsertFeedback(feedbackData) {
     .select()
     .single();
 
-  if (!error) return { data, error };
-
-  if (
-    feedbackData.evaluation_json &&
-    (error.message?.includes('evaluation_json') || error.message?.includes('column'))
-  ) {
-    const { evaluation_json, ...fallbackData } = feedbackData;
-    console.warn('[Supabase] evaluation_json column is unavailable, retrying feedback save without it.');
-    return supabaseAdmin
-      .from('feedbacks')
-      .upsert(fallbackData, { onConflict: 'session_id' })
-      .select()
-      .single();
-  }
-
-  return { data, error };
+    return { data, error };
 }
 
 export const processAudio = async (req, res) => {
@@ -395,7 +398,7 @@ export const processAudio = async (req, res) => {
     // ============================================
     if (transcriptText.length > 0) {
       console.log(`[Groq] Starting analysis...`);
-      
+
       const groqPrompt = `
       Anda adalah seorang ahli komunikasi dan pelatih public speaking. Analisis transkripsi berikut.
       Tugas Anda:
@@ -448,15 +451,44 @@ export const processAudio = async (req, res) => {
       Jangan kembalikan apapun selain JSON.
       `;
 
-      const aiResponse = await groq.chat.completions.create({
-        model: "llama-3.3-70b-versatile",
-        messages: [
-            { role: "system", content: groqPrompt },
-            { role: "user", content: transcriptText }
-        ],
-        temperature: 0,
-        response_format: { type: "json_object" }
-      });
+      const groqKeyCount = groqRotator.getKeyCount();
+      let aiResponse;
+      let groqAnalyzed = false;
+
+      for (let attempt = 0; attempt < groqKeyCount; attempt++) {
+        const groqClient = groqRotator.getNextClient();
+        try {
+          console.log(`[Groq] Attempting analysis with Key #${attempt + 1}`);
+          aiResponse = await groqClient.chat.completions.create({
+            model: "llama-3.3-70b-versatile",
+            messages: [
+              { role: "system", content: groqPrompt },
+              { role: "user", content: transcriptText }
+            ],
+            temperature: 0,
+            response_format: { type: "json_object" }
+          });
+          groqAnalyzed = true;
+          console.log(`[Groq] Analysis successful.`);
+          break; // Stop attempting if successful
+        } catch (error) {
+          console.error(`[Groq] Error with Key #${attempt + 1}:`, error.message);
+          const isRateLimit = error.message.includes('429') ||
+                              error.message.toLowerCase().includes('rate limit') ||
+                              error.message.toLowerCase().includes('concurrency');
+
+          if (isRateLimit && attempt < groqKeyCount - 1) {
+            console.log('[Groq] Rate limit detected, rotating to next API key...');
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          } else if (!isRateLimit) {
+              throw error; // Fail fast if it's not a rate limit issue
+          }
+        }
+      }
+
+      if (!groqAnalyzed || !aiResponse) {
+        throw new Error('All Groq API keys failed to process the audio');
+      }
 
       const analysisText = aiResponse.choices[0].message.content;
       let analysis = {};
@@ -487,12 +519,21 @@ export const processAudio = async (req, res) => {
       // ============================================
       const feedbackData = {
         session_id: sessionId,
-        filler_score: Math.max(0, 100 - (analysis.filler_count || 0) * 5),
-        overall_score: finalScore,
-        summary: analysis.summary || 'Tidak ada ringkasan',
-        improvement_tips: JSON.stringify(structuredImprovementTips),
         total_words: analysis.total_words || transcriptText.split(' ').length,
-        evaluation_json: evaluation,
+        eye_score: evaluation.summary.find(s => s.id === 'eyeContact')?.score ?? 0,
+        voice_score: evaluation.summary.find(s => s.id === 'intonation')?.score ?? 0,
+        filler_score: Math.max(0, 100 - (analysis.filler_count || 0) * 5),
+        content_score: 0, // No direct mapping from current AI output
+        confidence_score: 0, // No direct mapping from current AI output
+        word_waste_score: evaluation.summary.find(s => s.id === 'wordWaste')?.score ?? 0,
+        articulation_score: evaluation.summary.find(s => s.id === 'articulation')?.score ?? 0,
+        focus_duration: evaluation.details.eyeContact.focusDuration,
+        unfocus_duration: evaluation.details.eyeContact.unfocusDuration,
+        avg_volume: null, // No direct mapping from current AI output
+        tempo: evaluation.details.tempo.averageWpm, // Using averageWpm for tempo as a smallint
+        wpm: evaluation.details.tempo.averageWpm,
+        mr_owi_tips: analysis.mr_owi_tips || null,
+        vocabulary_references: analysis.vocabulary_references || null,
       };
 
       // Upsert feedback
@@ -538,30 +579,32 @@ export const processAudio = async (req, res) => {
       console.log(`[Groq] Transcript was empty, skipping analysis. Generating default feedback.`);
       finalScore = 0;
 
+      const defaultMrOwiTips = normalizeMrOwiTips();
+      const defaultImprovementTips = JSON.stringify({
+        general: 'Silakan coba berbicara lebih keras atau periksa mikrofon Anda.',
+        mr_owi_tips: defaultMrOwiTips
+      });
+
       const feedbackData = {
         session_id: sessionId,
-        filler_score: 100,
         overall_score: 0,
         summary: 'Tidak ada suara atau percakapan yang terdeteksi pada rekaman audio.',
-        improvement_tips: JSON.stringify({
-          general: 'Silakan coba berbicara lebih keras atau periksa mikrofon Anda.',
-          mr_owi_tips: normalizeMrOwiTips()
-        }),
+        improvement_tips: defaultImprovementTips,
         total_words: 0,
-        evaluation_json: buildPresentationEvaluation({
-          sessionId,
-          transcriptText,
-          duration,
-          analysis: {
-            filler_words: [],
-            filler_count: 0,
-            repeated_words: [],
-            total_words: 0,
-            overall_score: 0
-          },
-          telemetry,
-          mrOwiTips: normalizeMrOwiTips()
-        })
+        eye_score: 0,
+        voice_score: 0,
+        filler_score: 100, // Default to good score if no fillers detected (no transcript)
+        content_score: 0,
+        confidence_score: 0,
+        word_waste_score: 100, // Default to good score if no wasted words (no transcript)
+        articulation_score: 0,
+        focus_duration: 0,
+        unfocus_duration: 0,
+        avg_volume: null,
+        tempo: 0,
+        wpm: 0,
+        mr_owi_tips: defaultMrOwiTips || null,
+        vocabulary_references: [],
       };
 
       const { error: feedbackError } = await upsertFeedback(feedbackData);
