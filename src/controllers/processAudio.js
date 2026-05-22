@@ -1,17 +1,17 @@
-import { AssemblyAI } from 'assemblyai';
-import Groq from 'groq-sdk';
-import { supabaseAdmin } from '../config/supabase.js';
+import { AssemblyAI } from "assemblyai";
+import Groq from "groq-sdk";
+import { supabaseAdmin } from "../config/supabase.js";
 
 // Groq ApiKeyRotator
 class GroqApiKeyRotator {
   constructor() {
-    this.keys = process.env.GROQ_API_KEY?.split(',').map(k => k.trim()) || [];
+    this.keys = process.env.GROQ_API_KEY?.split(",").map((k) => k.trim()) || [];
     this.currentIndex = 0;
   }
 
   getNextClient() {
     if (this.keys.length === 0) {
-      throw new Error('No API keys found in .env (GROQ_API_KEY)');
+      throw new Error("No API keys found in .env (GROQ_API_KEY)");
     }
     const key = this.keys[this.currentIndex];
     this.currentIndex = (this.currentIndex + 1) % this.keys.length;
@@ -28,13 +28,14 @@ const groqRotator = new GroqApiKeyRotator();
 // AssemblyAI ApiKeyRotator reference logic
 class ApiKeyRotator {
   constructor() {
-    this.keys = process.env.ASSEMBLYAI_API_KEYS?.split(',').map(k => k.trim()) || [];
+    this.keys =
+      process.env.ASSEMBLYAI_API_KEYS?.split(",").map((k) => k.trim()) || [];
     this.currentIndex = 0;
   }
 
   getNextClient() {
     if (this.keys.length === 0) {
-      throw new Error('No API keys found in .env (ASSEMBLYAI_API_KEYS)');
+      throw new Error("No API keys found in .env (ASSEMBLYAI_API_KEYS)");
     }
     const key = this.keys[this.currentIndex];
     this.currentIndex = (this.currentIndex + 1) % this.keys.length;
@@ -47,35 +48,36 @@ class ApiKeyRotator {
 }
 
 const rotator = new ApiKeyRotator();
+const TEMPO_WINDOW_SECONDS = 10;
 
 const DEFAULT_MR_OWI_TIPS = {
   artikulasi: [
-    'Hindari menelan akhir kata atau berbicara terlalu cepat sehingga pengucapan terdengar samar.',
-    'Gerakan mulut yang jelas membantu suara terdengar lebih tegas dan mudah dipahami.',
-    'Ulangi kata atau istilah penting beberapa kali agar lidah terbiasa dan tidak terbata-bata saat menyampaikannya.'
+    "Hindari menelan akhir kata atau berbicara terlalu cepat sehingga pengucapan terdengar samar.",
+    "Gerakan mulut yang jelas membantu suara terdengar lebih tegas dan mudah dipahami.",
+    "Ulangi kata atau istilah penting beberapa kali agar lidah terbiasa dan tidak terbata-bata saat menyampaikannya.",
   ],
   intonasi: [
-    'Beri penekanan pada kata atau poin penting agar pesan lebih jelas dan tidak terdengar datar.',
-    'Variasikan nada saat menjelaskan bagian penting atau saat berpindah topik agar penyampaian lebih hidup. Hindari nada monoton.',
-    'Jangan berbicara dengan satu nada terus-menerus, karena dapat membuat audiens cepat bosan atau kehilangan fokus.'
+    "Beri penekanan pada kata atau poin penting agar pesan lebih jelas dan tidak terdengar datar.",
+    "Variasikan nada saat menjelaskan bagian penting atau saat berpindah topik agar penyampaian lebih hidup. Hindari nada monoton.",
+    "Jangan berbicara dengan satu nada terus-menerus, karena dapat membuat audiens cepat bosan atau kehilangan fokus.",
   ],
   kata_jeda: [
-    'Saat butuh waktu berpikir, lebih baik berhenti sejenak daripada mengisi dengan kata pengisi. Diam singkat terlihat lebih percaya diri.',
+    "Saat butuh waktu berpikir, lebih baik berhenti sejenak daripada mengisi dengan kata pengisi. Diam singkat terlihat lebih percaya diri.",
     'Siapkan penghubung seperti "selanjutnya", "berikutnya", atau "jadi" agar alur bicara lebih terstruktur dan tidak terputus-putus.',
-    'Dengarkan kembali rekaman presentasi untuk menyadari seberapa sering filler muncul, lalu perbaiki secara bertahap.'
+    "Dengarkan kembali rekaman presentasi untuk menyadari seberapa sering filler muncul, lalu perbaiki secara bertahap.",
   ],
   pemborosan_kata: [
     'Hindari penggunaan ganda seperti "sangat sekali", "benar-benar sangat", atau "agar supaya". Pilih salah satu yang paling kuat.',
-    'Hindari pengulangan makna dalam satu kalimat. Jika pesan sudah jelas, tidak perlu ditambah kata yang hanya memperpanjang tanpa menambah arti.'
-  ]
+    "Hindari pengulangan makna dalam satu kalimat. Jika pesan sudah jelas, tidak perlu ditambah kata yang hanya memperpanjang tanpa menambah arti.",
+  ],
 };
 
 function normalizeTipList(value, fallback) {
   if (!Array.isArray(value)) return fallback;
 
   const cleaned = value
-    .filter(item => typeof item === 'string')
-    .map(item => item.trim())
+    .filter((item) => typeof item === "string")
+    .map((item) => item.trim())
     .filter(Boolean);
 
   return cleaned.length > 0 ? cleaned : fallback;
@@ -83,38 +85,52 @@ function normalizeTipList(value, fallback) {
 
 function normalizeMrOwiTips(tips = {}) {
   return {
-    artikulasi: normalizeTipList(tips.artikulasi, DEFAULT_MR_OWI_TIPS.artikulasi),
+    artikulasi: normalizeTipList(
+      tips.artikulasi,
+      DEFAULT_MR_OWI_TIPS.artikulasi,
+    ),
     intonasi: normalizeTipList(tips.intonasi, DEFAULT_MR_OWI_TIPS.intonasi),
     kata_jeda: normalizeTipList(tips.kata_jeda, DEFAULT_MR_OWI_TIPS.kata_jeda),
-    pemborosan_kata: normalizeTipList(tips.pemborosan_kata, DEFAULT_MR_OWI_TIPS.pemborosan_kata)
+    pemborosan_kata: normalizeTipList(
+      tips.pemborosan_kata,
+      DEFAULT_MR_OWI_TIPS.pemborosan_kata,
+    ),
   };
 }
 
 function statusFromScore(score) {
-  if (score >= 80) return 'good';
-  if (score >= 60) return 'warning';
-  return 'bad';
+  if (score >= 80) return "good";
+  if (score >= 60) return "warning";
+  return "bad";
 }
 
 function formatDuration(seconds = 0) {
   const safeSeconds = Math.max(0, Math.round(seconds));
   const minutes = Math.floor(safeSeconds / 60);
-  const secs = String(safeSeconds % 60).padStart(2, '0');
+  const secs = String(safeSeconds % 60).padStart(2, "0");
   return `${minutes}:${secs}`;
 }
 
-function buildTranscriptTokens(transcriptText, fillerWords = [], repeatedWords = []) {
-  const fillerSet = new Set(fillerWords.map(word => String(word).toLowerCase()));
-  const repeatedSet = new Set(repeatedWords.map(word => String(word).toLowerCase()));
+function buildTranscriptTokens(
+  transcriptText,
+  fillerWords = [],
+  repeatedWords = [],
+) {
+  const fillerSet = new Set(
+    fillerWords.map((word) => String(word).toLowerCase()),
+  );
+  const repeatedSet = new Set(
+    repeatedWords.map((word) => String(word).toLowerCase()),
+  );
 
   return transcriptText
     .split(/\s+/)
     .filter(Boolean)
-    .map(text => {
-      const normalized = text.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+    .map((text) => {
+      const normalized = text.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
       const tags = [];
-      if (fillerSet.has(normalized)) tags.push('filler');
-      if (repeatedSet.has(normalized)) tags.push('waste');
+      if (fillerSet.has(normalized)) tags.push("filler");
+      if (repeatedSet.has(normalized)) tags.push("waste");
       return { text, tags };
     });
 }
@@ -127,18 +143,142 @@ function countWords(items = []) {
   }, {});
 }
 
+function timestampToSeconds(word, secondsKeys, millisecondsKey) {
+  for (const key of secondsKeys) {
+    const secondsValue = Number(word?.[key]);
+    if (Number.isFinite(secondsValue)) return secondsValue;
+  }
+
+  const millisecondsValue = Number(word?.[millisecondsKey]);
+  if (Number.isFinite(millisecondsValue)) return millisecondsValue / 1000;
+
+  return 0;
+}
+
+function normalizeWordTimings(transcript) {
+  const speakerUtterances =
+    transcript?.utterances?.filter(
+      (u) => u.speaker === "A" || u.speaker === 0 || u.speaker === "1",
+    ) || [];
+  const sourceWords = speakerUtterances.some((u) => Array.isArray(u.words))
+    ? speakerUtterances.flatMap((u) => u.words || [])
+    : transcript?.words || [];
+
+  return sourceWords
+    .map((word) => {
+      const text = String(word?.text || word?.word || "").trim();
+      if (!text) return null;
+
+      return {
+        text,
+        startSecond: Number(
+          timestampToSeconds(
+            word,
+            ["startSecond", "start_second"],
+            "start",
+          ).toFixed(2),
+        ),
+        endSecond: Number(
+          timestampToSeconds(word, ["endSecond", "end_second"], "end").toFixed(
+            2,
+          ),
+        ),
+        confidence: Number.isFinite(Number(word?.confidence))
+          ? Number(Number(word.confidence).toFixed(3))
+          : undefined,
+      };
+    })
+    .filter(Boolean)
+    .filter((word) => word.endSecond >= word.startSecond);
+}
+
+function tempoLabelFromWpm(wpm) {
+  if (wpm < 100) return "slow";
+  if (wpm > 160) return "fast";
+  return "normal";
+}
+
+function buildTempoTimeline(
+  wordTimings = [],
+  durationSeconds = 1,
+  fallbackWpm = 0,
+) {
+  const safeDuration = Math.max(Math.round(Number(durationSeconds) || 1), 1);
+  const validWords = wordTimings.filter(
+    (word) =>
+      Number.isFinite(Number(word.startSecond)) &&
+      Number(word.startSecond) >= 0 &&
+      String(word.text || "").trim().length > 0,
+  );
+
+  if (validWords.length === 0) {
+    const safeWpm = Math.max(Math.round(Number(fallbackWpm) || 0), 0);
+    return {
+      chart:
+        safeWpm > 0
+          ? [
+              { second: Math.round(safeDuration * 0.33), wpm: safeWpm },
+              { second: Math.round(safeDuration * 0.66), wpm: safeWpm },
+              { second: safeDuration, wpm: safeWpm },
+            ]
+          : [],
+      segments:
+        safeWpm > 0
+          ? [
+              {
+                startSecond: 0,
+                endSecond: safeDuration,
+                label: tempoLabelFromWpm(safeWpm),
+                wpm: safeWpm,
+              },
+            ]
+          : [],
+    };
+  }
+
+  const windowSeconds =
+    safeDuration <= TEMPO_WINDOW_SECONDS ? safeDuration : TEMPO_WINDOW_SECONDS;
+  const segments = [];
+
+  for (let start = 0; start < safeDuration; start += windowSeconds) {
+    const end = Math.min(start + windowSeconds, safeDuration);
+    const seconds = Math.max(end - start, 1);
+    const wordCount = validWords.filter(
+      (word) => word.startSecond >= start && word.startSecond < end,
+    ).length;
+    const wpm = Math.round((wordCount / seconds) * 60);
+
+    segments.push({
+      startSecond: start,
+      endSecond: end,
+      label: tempoLabelFromWpm(wpm),
+      wpm,
+    });
+  }
+
+  return {
+    chart: segments.map((segment) => ({
+      second: segment.endSecond,
+      wpm: segment.wpm,
+    })),
+    segments,
+  };
+}
+
 function buildPresentationEvaluation({
   sessionId,
   transcriptText,
   duration,
   analysis,
   telemetry,
-  mrOwiTips
+  mrOwiTips,
+  wordTimings = [],
 }) {
   const fillerWords = analysis.filler_words || [];
   const repeatedWords = analysis.repeated_words || [];
   const fillerCount = analysis.filler_count || fillerWords.length;
-  const totalWords = analysis.total_words || transcriptText.split(/\s+/).filter(Boolean).length;
+  const totalWords =
+    analysis.total_words || transcriptText.split(/\s+/).filter(Boolean).length;
   const durationSeconds = Math.max(Number(duration) || 1, 1);
   const averageWpm = Math.round((totalWords / durationSeconds) * 60);
   const fillerScore = Math.max(0, 100 - fillerCount * 5);
@@ -146,10 +286,26 @@ function buildPresentationEvaluation({
   const eyeContact = telemetry?.eyeContact;
   const eyeScore = eyeContact?.focusScore ?? 0;
   const fillerCountMap = countWords(fillerWords);
-  const fillerSummary = Object.entries(fillerCountMap).map(([word, count]) => ({ word, count }));
-  const topFillers = fillerSummary.slice(0, 2).map(item => `"${item.word}"`).join(' dan ');
-  const transcript = buildTranscriptTokens(transcriptText, fillerWords, repeatedWords);
-  const tempoLabel = averageWpm < 100 ? 'slow' : averageWpm > 160 ? 'fast' : 'normal';
+  const fillerSummary = Object.entries(fillerCountMap).map(([word, count]) => ({
+    word,
+    count,
+  }));
+  const topFillers = fillerSummary
+    .slice(0, 2)
+    .map((item) => `"${item.word}"`)
+    .join(" dan ");
+  const transcript = buildTranscriptTokens(
+    transcriptText,
+    fillerWords,
+    repeatedWords,
+  );
+  const tempoLabel =
+    averageWpm < 100 ? "slow" : averageWpm > 160 ? "fast" : "normal";
+  const tempoTimeline = buildTempoTimeline(
+    wordTimings,
+    durationSeconds,
+    averageWpm,
+  );
 
   return {
     sessionId,
@@ -158,141 +314,148 @@ function buildPresentationEvaluation({
     createdAt: new Date().toISOString(),
     summary: [
       {
-        id: 'intonation',
-        title: 'Intonasi',
+        id: "intonation",
+        title: "Intonasi",
         score: analysis.overall_score || 0,
         status: statusFromScore(analysis.overall_score || 0),
-        evaluationNote: 'Intonasi dievaluasi dari kelancaran audio dan variasi penyampaian selama presentasi.'
+        evaluationNote:
+          "Intonasi dievaluasi dari kelancaran audio dan variasi penyampaian selama presentasi.",
       },
       {
-        id: 'eyeContact',
-        title: 'Kontak Mata',
+        id: "eyeContact",
+        title: "Kontak Mata",
         score: eyeScore,
-        status: eyeContact ? statusFromScore(eyeScore) : 'unavailable',
+        status: eyeContact ? statusFromScore(eyeScore) : "unavailable",
         evaluationNote: eyeContact
           ? `Kontak mata terjaga selama ${formatDuration(eyeContact.focusDuration)}, dengan ${formatDuration(eyeContact.unfocusDuration)} momen tidak fokus.`
-          : 'Data kontak mata belum tersedia karena tracking wajah tidak aktif selama sesi.'
+          : "Data kontak mata belum tersedia karena tracking wajah tidak aktif selama sesi.",
       },
       {
-        id: 'tempo',
-        title: 'Tempo',
-        score: statusFromScore(averageWpm >= 100 && averageWpm <= 160 ? 90 : 65) === 'good' ? 90 : 65,
-        status: averageWpm >= 100 && averageWpm <= 160 ? 'good' : 'warning',
-        evaluationNote: `Tempo bicara berada di ${averageWpm} kata per menit dan tergolong ${tempoLabel === 'normal' ? 'stabil' : tempoLabel === 'fast' ? 'cepat' : 'lambat'}.`
+        id: "tempo",
+        title: "Tempo",
+        score:
+          statusFromScore(averageWpm >= 100 && averageWpm <= 160 ? 90 : 65) ===
+          "good"
+            ? 90
+            : 65,
+        status: averageWpm >= 100 && averageWpm <= 160 ? "good" : "warning",
+        evaluationNote: `Tempo bicara berada di ${averageWpm} kata per menit dan tergolong ${tempoLabel === "normal" ? "stabil" : tempoLabel === "fast" ? "cepat" : "lambat"}.`,
       },
       {
-        id: 'fillerWords',
-        title: 'Kata Jeda',
+        id: "fillerWords",
+        title: "Kata Jeda",
         score: fillerScore,
         status: statusFromScore(fillerScore),
-        evaluationNote: fillerCount > 0
-          ? `Terdapat filler word seperti ${topFillers || 'kata jeda'} sebanyak ${fillerCount} kali saat presentasi.`
-          : 'Tidak ditemukan kata jeda yang mengganggu selama presentasi.'
+        evaluationNote:
+          fillerCount > 0
+            ? `Terdapat filler word seperti ${topFillers || "kata jeda"} sebanyak ${fillerCount} kali saat presentasi.`
+            : "Tidak ditemukan kata jeda yang mengganggu selama presentasi.",
       },
       {
-        id: 'articulation',
-        title: 'Artikulasi',
+        id: "articulation",
+        title: "Artikulasi",
         score: analysis.overall_score || 0,
-        status: 'warning',
-        evaluationNote: 'Artikulasi masih dinilai dari kualitas transcript karena confidence per kata belum tersedia.'
+        status: "warning",
+        evaluationNote:
+          "Artikulasi masih dinilai dari kualitas transcript karena confidence per kata belum tersedia.",
       },
       {
-        id: 'wordWaste',
-        title: 'Pemborosan Kata',
+        id: "wordWaste",
+        title: "Pemborosan Kata",
         score: wordWasteScore,
         status: statusFromScore(wordWasteScore),
-        evaluationNote: repeatedWords.length > 0
-          ? `Terdapat ${repeatedWords.length} kata berulang yang berpotensi membuat penyampaian kurang ringkas.`
-          : 'Tidak ditemukan pemborosan kata yang menonjol pada transcript.'
-      }
+        evaluationNote:
+          repeatedWords.length > 0
+            ? `Terdapat ${repeatedWords.length} kata berulang yang berpotensi membuat penyampaian kurang ringkas.`
+            : "Tidak ditemukan pemborosan kata yang menonjol pada transcript.",
+      },
     ],
     details: {
       intonation: {
         chart: [],
         metrics: {},
-        aiTips: mrOwiTips.intonasi
+        aiTips: mrOwiTips.intonasi,
       },
       eyeContact: {
         events: eyeContact?.events || [],
         focusDuration: eyeContact?.focusDuration || 0,
         unfocusDuration: eyeContact?.unfocusDuration || 0,
         aiTips: [
-          'Arahkan wajah ke kamera saat menyampaikan poin utama.',
-          'Gunakan catatan singkat agar tidak terlalu sering melihat ke luar kamera.'
-        ]
+          "Arahkan wajah ke kamera saat menyampaikan poin utama.",
+          "Gunakan catatan singkat agar tidak terlalu sering melihat ke luar kamera.",
+        ],
       },
       tempo: {
-        chart: [
-          { second: Math.round(durationSeconds * 0.33), wpm: averageWpm },
-          { second: Math.round(durationSeconds * 0.66), wpm: averageWpm },
-          { second: durationSeconds, wpm: averageWpm }
-        ],
+        chart: tempoTimeline.chart,
         averageWpm,
-        segments: [
-          {
-            startSecond: 0,
-            endSecond: durationSeconds,
-            label: tempoLabel,
-            wpm: averageWpm
-          }
-        ],
+        segments: tempoTimeline.segments,
         aiTips: [
-          'Jaga tempo di kisaran 100 sampai 160 kata per menit.',
-          'Tambahkan jeda singkat setelah menyampaikan poin penting.'
-        ]
+          "Jaga tempo di kisaran 100 sampai 160 kata per menit.",
+          "Tambahkan jeda singkat setelah menyampaikan poin penting.",
+        ],
       },
       fillerWords: {
         transcript,
         fillerWords: fillerSummary,
         totalCount: fillerCount,
-        aiTips: mrOwiTips.kata_jeda
+        aiTips: mrOwiTips.kata_jeda,
       },
       articulation: {
         unclearSegments: [],
-        aiTips: mrOwiTips.artikulasi
+        aiTips: mrOwiTips.artikulasi,
       },
       wordWaste: {
         transcript,
-        wastedPhrases: repeatedWords.map(word => ({
+        wastedPhrases: repeatedWords.map((word) => ({
           text: word,
-          reason: 'Kata ini terdeteksi berulang dan berpotensi membuat kalimat kurang efisien.'
+          reason:
+            "Kata ini terdeteksi berulang dan berpotensi membuat kalimat kurang efisien.",
         })),
-        aiTips: mrOwiTips.pemborosan_kata
-      }
-    }
+        aiTips: mrOwiTips.pemborosan_kata,
+      },
+    },
   };
 }
 
 async function upsertFeedback(feedbackData) {
   const { data, error } = await supabaseAdmin
-    .from('feedbacks')
-    .upsert(feedbackData, { onConflict: 'session_id' })
+    .from("feedbacks")
+    .upsert(feedbackData, { onConflict: "session_id" })
     .select()
     .single();
 
-    return { data, error };
+  return { data, error };
 }
 
 export const processAudio = async (req, res) => {
-  const secretKey = req.headers['x-api-secret'];
-  
+  const secretKey = req.headers["x-api-secret"];
+
   if (!secretKey || secretKey !== process.env.API_SECRET_KEY) {
-    console.warn(`[processAudio] Unauthorized webhook attempt: secret key mismatch.`);
-    return res.status(401).json({ error: 'Unauthorized: Invalid or missing API secret key' });
+    console.warn(
+      `[processAudio] Unauthorized webhook attempt: secret key mismatch.`,
+    );
+    return res
+      .status(401)
+      .json({ error: "Unauthorized: Invalid or missing API secret key" });
   }
 
   const { sessionId, audio_url, duration, telemetry } = req.body;
 
   if (!sessionId || !audio_url) {
-    return res.status(400).json({ error: 'sessionId and audio_url are required' });
+    return res
+      .status(400)
+      .json({ error: "sessionId and audio_url are required" });
   }
 
   // Respond immediately that we have started background processing
-  res.status(202).json({ message: 'Background audio processing started', sessionId });
+  res
+    .status(202)
+    .json({ message: "Background audio processing started", sessionId });
 
   console.log(`[processAudio] Started processing for session: ${sessionId}`);
 
-  let transcriptText = '';
+  let transcriptText = "";
+  let wordTimings = [];
   let transcribed = false;
 
   // ============================================================
@@ -304,11 +467,13 @@ export const processAudio = async (req, res) => {
     for (let attempt = 0; attempt < keyCount; attempt++) {
       const client = rotator.getNextClient();
       try {
-        console.log(`[AssemblyAI] Attempting transcription with Key #${attempt + 1}`);
+        console.log(
+          `[AssemblyAI] Attempting transcription with Key #${attempt + 1}`,
+        );
         const transcript = await client.transcripts.transcribe({
           audio: audio_url,
-          speech_models: ['universal-3-pro', 'universal-2'],
-          language_detection: true,
+          speech_models: ["universal-3-pro", "universal-2"],
+          language_code: "id",
           speaker_labels: true,
           punctuate: true,
           format_text: true,
@@ -316,35 +481,42 @@ export const processAudio = async (req, res) => {
 
         // Parse speaker text
         if (transcript.utterances?.length > 0) {
-          transcript.utterances.forEach(u => {
-            if (u.speaker === 'A' || u.speaker === 0 || u.speaker === '1') {
-              transcriptText += u.text + '\n';
+          transcript.utterances.forEach((u) => {
+            if (u.speaker === "A" || u.speaker === 0 || u.speaker === "1") {
+              transcriptText += u.text + "\n";
             }
           });
         } else {
-          transcriptText = transcript.text || '';
+          transcriptText = transcript.text || "";
         }
+        wordTimings = normalizeWordTimings(transcript);
 
         transcribed = true;
         console.log(`[AssemblyAI] Transcription successful.`);
         break; // Stop attempting if successful
       } catch (error) {
-        console.error(`[AssemblyAI] Error with Key #${attempt + 1}:`, error.message);
-        const isRateLimit = error.message.includes('429') ||
-                            error.message.toLowerCase().includes('rate limit') ||
-                            error.message.toLowerCase().includes('concurrency');
-        
+        console.error(
+          `[AssemblyAI] Error with Key #${attempt + 1}:`,
+          error.message,
+        );
+        const isRateLimit =
+          error.message.includes("429") ||
+          error.message.toLowerCase().includes("rate limit") ||
+          error.message.toLowerCase().includes("concurrency");
+
         if (isRateLimit && attempt < keyCount - 1) {
-          console.log('[AssemblyAI] Rate limit detected, rotating to next API key...');
-          await new Promise(resolve => setTimeout(resolve, 2000));
+          console.log(
+            "[AssemblyAI] Rate limit detected, rotating to next API key...",
+          );
+          await new Promise((resolve) => setTimeout(resolve, 2000));
         } else if (!isRateLimit) {
-            throw error; // Fail fast if it's not a rate limit issue
+          throw error; // Fail fast if it's not a rate limit issue
         }
       }
     }
 
     if (!transcribed) {
-      throw new Error('All AssemblyAI API keys failed to process the audio');
+      throw new Error("All AssemblyAI API keys failed to process the audio");
     }
 
     transcriptText = transcriptText.trim();
@@ -353,36 +525,44 @@ export const processAudio = async (req, res) => {
     // STEP 2: SAVE RAW TRANSCRIPT TO SUPABASE IMMEDIATELY
     // ============================================
     const { error: updateError } = await supabaseAdmin
-      .from('audio_recordings')
+      .from("audio_recordings")
       .update({
         transcript: transcriptText,
+        word_timings: wordTimings,
         is_processed: true,
-        processing_status: 'completed',
+        processing_status: "completed",
         processed_at: new Date(),
       })
-      .eq('session_id', sessionId);
+      .eq("session_id", sessionId);
 
     if (updateError) {
-      console.warn('[Supabase] Failed to update audio_recordings:', updateError.message);
+      console.warn(
+        "[Supabase] Failed to update audio_recordings:",
+        updateError.message,
+      );
       throw updateError;
     }
 
-    console.log(`[Supabase] Raw transcript saved successfully for session ${sessionId}`);
-
+    console.log(
+      `[Supabase] Raw transcript saved successfully for session ${sessionId}`,
+    );
   } catch (error) {
-    console.error(`[processAudio] Fatal speech-to-text error for session ${sessionId}:`, error);
-    
+    console.error(
+      `[processAudio] Fatal speech-to-text error for session ${sessionId}:`,
+      error,
+    );
+
     // Mark as failed in audio_recordings
     await supabaseAdmin
-      .from('audio_recordings')
-      .update({ processing_status: 'failed' })
-      .eq('session_id', sessionId);
+      .from("audio_recordings")
+      .update({ processing_status: "failed" })
+      .eq("session_id", sessionId);
 
     // Mark as failed in game_sessions
     await supabaseAdmin
-      .from('game_sessions')
-      .update({ status: 'failed' })
-      .eq('id', sessionId);
+      .from("game_sessions")
+      .update({ status: "failed" })
+      .eq("id", sessionId);
 
     return; // Keluar lebih awal karena transkripsi gagal
   }
@@ -463,31 +643,37 @@ export const processAudio = async (req, res) => {
             model: "llama-3.3-70b-versatile",
             messages: [
               { role: "system", content: groqPrompt },
-              { role: "user", content: transcriptText }
+              { role: "user", content: transcriptText },
             ],
             temperature: 0,
-            response_format: { type: "json_object" }
+            response_format: { type: "json_object" },
           });
           groqAnalyzed = true;
           console.log(`[Groq] Analysis successful.`);
           break; // Stop attempting if successful
         } catch (error) {
-          console.error(`[Groq] Error with Key #${attempt + 1}:`, error.message);
-          const isRateLimit = error.message.includes('429') ||
-                              error.message.toLowerCase().includes('rate limit') ||
-                              error.message.toLowerCase().includes('concurrency');
+          console.error(
+            `[Groq] Error with Key #${attempt + 1}:`,
+            error.message,
+          );
+          const isRateLimit =
+            error.message.includes("429") ||
+            error.message.toLowerCase().includes("rate limit") ||
+            error.message.toLowerCase().includes("concurrency");
 
           if (isRateLimit && attempt < groqKeyCount - 1) {
-            console.log('[Groq] Rate limit detected, rotating to next API key...');
-            await new Promise(resolve => setTimeout(resolve, 2000));
+            console.log(
+              "[Groq] Rate limit detected, rotating to next API key...",
+            );
+            await new Promise((resolve) => setTimeout(resolve, 2000));
           } else if (!isRateLimit) {
-              throw error; // Fail fast if it's not a rate limit issue
+            throw error; // Fail fast if it's not a rate limit issue
           }
         }
       }
 
       if (!groqAnalyzed || !aiResponse) {
-        throw new Error('All Groq API keys failed to process the audio');
+        throw new Error("All Groq API keys failed to process the audio");
       }
 
       const analysisText = aiResponse.choices[0].message.content;
@@ -495,15 +681,15 @@ export const processAudio = async (req, res) => {
       try {
         analysis = JSON.parse(analysisText);
       } catch (e) {
-        console.error('[Groq] Failed to parse AI response:', analysisText);
-        analysis = { summary: 'Gagal memproses hasil analisis AI.' };
+        console.error("[Groq] Failed to parse AI response:", analysisText);
+        analysis = { summary: "Gagal memproses hasil analisis AI." };
       }
 
       finalScore = analysis.overall_score || 0;
       const mrOwiTips = normalizeMrOwiTips(analysis.mr_owi_tips);
       const structuredImprovementTips = {
-        general: analysis.improvement_tips || 'Terus berlatih.',
-        mr_owi_tips: mrOwiTips
+        general: analysis.improvement_tips || "Terus berlatih.",
+        mr_owi_tips: mrOwiTips,
       };
       const evaluation = buildPresentationEvaluation({
         sessionId,
@@ -511,7 +697,8 @@ export const processAudio = async (req, res) => {
         duration,
         analysis,
         telemetry,
-        mrOwiTips
+        mrOwiTips,
+        wordTimings,
       });
 
       // ============================================
@@ -520,17 +707,23 @@ export const processAudio = async (req, res) => {
       const feedbackData = {
         session_id: sessionId,
         overall_score: finalScore,
-        summary: analysis.summary || 'Presentasi selesai dianalisis.',
-        improvement_tips: analysis.improvement_tips || 'Terus berlatih untuk hasil yang lebih baik.',
+        summary: analysis.summary || "Presentasi selesai dianalisis.",
+        improvement_tips:
+          analysis.improvement_tips ||
+          "Terus berlatih untuk hasil yang lebih baik.",
         evaluation_json: evaluation,
-        total_words: analysis.total_words || transcriptText.split(' ').length,
-        eye_score: evaluation.summary.find(s => s.id === 'eyeContact')?.score ?? 0,
-        voice_score: evaluation.summary.find(s => s.id === 'intonation')?.score ?? 0,
+        total_words: analysis.total_words || transcriptText.split(" ").length,
+        eye_score:
+          evaluation.summary.find((s) => s.id === "eyeContact")?.score ?? 0,
+        voice_score:
+          evaluation.summary.find((s) => s.id === "intonation")?.score ?? 0,
         filler_score: Math.max(0, 100 - (analysis.filler_count || 0) * 5),
         content_score: 0,
         confidence_score: 0,
-        word_waste_score: evaluation.summary.find(s => s.id === 'wordWaste')?.score ?? 0,
-        articulation_score: evaluation.summary.find(s => s.id === 'articulation')?.score ?? 0,
+        word_waste_score:
+          evaluation.summary.find((s) => s.id === "wordWaste")?.score ?? 0,
+        articulation_score:
+          evaluation.summary.find((s) => s.id === "articulation")?.score ?? 0,
         focus_duration: evaluation.details.eyeContact.focusDuration,
         unfocus_duration: evaluation.details.eyeContact.unfocusDuration,
         avg_volume: null,
@@ -541,78 +734,103 @@ export const processAudio = async (req, res) => {
       };
 
       // Upsert feedback
-      const { data: feedback, error: feedbackError } = await upsertFeedback(feedbackData);
+      const { data: feedback, error: feedbackError } =
+        await upsertFeedback(feedbackData);
 
       if (feedbackError) {
-        console.warn('[Supabase] Failed to save feedback:', feedbackError.message);
+        console.warn(
+          "[Supabase] Failed to save feedback:",
+          feedbackError.message,
+        );
       } else {
-        console.log(`[Supabase] Feedback saved successfully for session ${sessionId}`);
-        
+        console.log(
+          `[Supabase] Feedback saved successfully for session ${sessionId}`,
+        );
+
         // Simpan repeated words ke tabel database feedback_repeated_words
-        if (analysis.repeated_words && Array.isArray(analysis.repeated_words) && analysis.repeated_words.length > 0 && feedback) {
-          const cleanTranscript = transcriptText.toLowerCase().replace(/[.,!?;:"""''()[\]{}]/g, '');
+        if (
+          analysis.repeated_words &&
+          Array.isArray(analysis.repeated_words) &&
+          analysis.repeated_words.length > 0 &&
+          feedback
+        ) {
+          const cleanTranscript = transcriptText
+            .toLowerCase()
+            .replace(/[.,!?;:"""''()[\]{}]/g, "");
           const wordsList = cleanTranscript.split(/\s+/);
-          
-          const repeatedWordsData = analysis.repeated_words.map(word => {
-            const occurrences = wordsList.filter(w => w === word.toLowerCase()).length;
+
+          const repeatedWordsData = analysis.repeated_words.map((word) => {
+            const occurrences = wordsList.filter(
+              (w) => w === word.toLowerCase(),
+            ).length;
             return {
               feedback_id: feedback.id,
               word: word,
-              count: occurrences || 1
+              count: occurrences || 1,
             };
           });
 
           // Hapus repeated words lama untuk feedback ini agar tidak melanggar constraint/duplicate insert
           await supabaseAdmin
-            .from('feedback_repeated_words')
+            .from("feedback_repeated_words")
             .delete()
-            .eq('feedback_id', feedback.id);
+            .eq("feedback_id", feedback.id);
 
           const { error: wordsError } = await supabaseAdmin
-            .from('feedback_repeated_words')
+            .from("feedback_repeated_words")
             .insert(repeatedWordsData);
 
           if (wordsError) {
-            console.warn('[Supabase] Failed to save repeated words:', wordsError.message);
+            console.warn(
+              "[Supabase] Failed to save repeated words:",
+              wordsError.message,
+            );
           } else {
-            console.log('[Supabase] Repeated words saved successfully');
+            console.log("[Supabase] Repeated words saved successfully");
           }
         }
       }
     } else {
-      console.log(`[Groq] Transcript was empty, skipping analysis. Generating default feedback.`);
+      console.log(
+        `[Groq] Transcript was empty, skipping analysis. Generating default feedback.`,
+      );
       finalScore = 0;
 
       const defaultMrOwiTips = normalizeMrOwiTips();
-      const defaultImprovementTips = 'Silakan coba berbicara lebih keras atau periksa mikrofon Anda.';
-      
+      const defaultImprovementTips =
+        "Silakan coba berbicara lebih keras atau periksa mikrofon Anda.";
+
       const analysis = {
         overall_score: 0,
         filler_words: [],
         filler_count: 0,
         repeated_words: [],
         total_words: 0,
-        summary: 'Tidak ada suara atau percakapan yang terdeteksi pada rekaman audio.',
-        improvement_tips: defaultImprovementTips
+        summary:
+          "Tidak ada suara atau percakapan yang terdeteksi pada rekaman audio.",
+        improvement_tips: defaultImprovementTips,
       };
 
       const evaluation = buildPresentationEvaluation({
         sessionId,
-        transcriptText: '',
+        transcriptText: "",
         duration,
         analysis,
         telemetry,
-        mrOwiTips: defaultMrOwiTips
+        mrOwiTips: defaultMrOwiTips,
+        wordTimings,
       });
 
       const feedbackData = {
         session_id: sessionId,
         overall_score: 0,
-        summary: 'Tidak ada suara atau percakapan yang terdeteksi pada rekaman audio.',
+        summary:
+          "Tidak ada suara atau percakapan yang terdeteksi pada rekaman audio.",
         improvement_tips: defaultImprovementTips,
         evaluation_json: evaluation,
         total_words: 0,
-        eye_score: evaluation.summary.find(s => s.id === 'eyeContact')?.score ?? 0,
+        eye_score:
+          evaluation.summary.find((s) => s.id === "eyeContact")?.score ?? 0,
         voice_score: 0,
         filler_score: 100, // Default to good score if no fillers detected (no transcript)
         content_score: 0,
@@ -623,7 +841,7 @@ export const processAudio = async (req, res) => {
         unfocus_duration: evaluation.details.eyeContact.unfocusDuration,
         avg_volume: null,
         tempo: 0,
-        wpm: 0,
+        wpm: null,
         mr_owi_tips: defaultMrOwiTips || null,
         vocabulary_references: [],
       };
@@ -631,7 +849,10 @@ export const processAudio = async (req, res) => {
       const { error: feedbackError } = await upsertFeedback(feedbackData);
 
       if (feedbackError) {
-        console.warn('[Supabase] Failed to save default feedback:', feedbackError.message);
+        console.warn(
+          "[Supabase] Failed to save default feedback:",
+          feedbackError.message,
+        );
       }
     }
 
@@ -639,28 +860,33 @@ export const processAudio = async (req, res) => {
     // STEP 5: SYNC GAME SESSIONS STATUS TO COMPLETED
     // ============================================
     const { error: sessionSuccessError } = await supabaseAdmin
-      .from('game_sessions')
+      .from("game_sessions")
       .update({
-        status: 'completed',
-        total_score: finalScore
+        status: "completed",
+        total_score: finalScore,
       })
-      .eq('id', sessionId);
+      .eq("id", sessionId);
 
     if (sessionSuccessError) {
-      console.warn('[Supabase] Failed to update game_sessions status to completed:', sessionSuccessError.message);
+      console.warn(
+        "[Supabase] Failed to update game_sessions status to completed:",
+        sessionSuccessError.message,
+      );
     } else {
       console.log(`[Supabase] Game session ${sessionId} marked as completed`);
     }
 
     console.log(`[processAudio] Finished processing for session: ${sessionId}`);
-
   } catch (groqError) {
-    console.error(`[processAudio] Non-fatal Groq AI feedback error for session ${sessionId}:`, groqError);
-    
+    console.error(
+      `[processAudio] Non-fatal Groq AI feedback error for session ${sessionId}:`,
+      groqError,
+    );
+
     // Jika Groq gagal, kita tetap ubah status game_session menjadi failed, namun audio_recording tetap completed (sukses transkrip)
     await supabaseAdmin
-      .from('game_sessions')
-      .update({ status: 'failed' })
-      .eq('id', sessionId);
+      .from("game_sessions")
+      .update({ status: "failed" })
+      .eq("id", sessionId);
   }
 };
