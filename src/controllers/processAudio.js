@@ -519,18 +519,22 @@ export const processAudio = async (req, res) => {
       // ============================================
       const feedbackData = {
         session_id: sessionId,
+        overall_score: finalScore,
+        summary: analysis.summary || 'Presentasi selesai dianalisis.',
+        improvement_tips: analysis.improvement_tips || 'Terus berlatih untuk hasil yang lebih baik.',
+        evaluation_json: evaluation,
         total_words: analysis.total_words || transcriptText.split(' ').length,
         eye_score: evaluation.summary.find(s => s.id === 'eyeContact')?.score ?? 0,
         voice_score: evaluation.summary.find(s => s.id === 'intonation')?.score ?? 0,
         filler_score: Math.max(0, 100 - (analysis.filler_count || 0) * 5),
-        content_score: 0, // No direct mapping from current AI output
-        confidence_score: 0, // No direct mapping from current AI output
+        content_score: 0,
+        confidence_score: 0,
         word_waste_score: evaluation.summary.find(s => s.id === 'wordWaste')?.score ?? 0,
         articulation_score: evaluation.summary.find(s => s.id === 'articulation')?.score ?? 0,
         focus_duration: evaluation.details.eyeContact.focusDuration,
         unfocus_duration: evaluation.details.eyeContact.unfocusDuration,
-        avg_volume: null, // No direct mapping from current AI output
-        tempo: evaluation.details.tempo.averageWpm, // Using averageWpm for tempo as a smallint
+        avg_volume: null,
+        tempo: evaluation.details.tempo.averageWpm,
         wpm: evaluation.details.tempo.averageWpm,
         mr_owi_tips: analysis.mr_owi_tips || null,
         vocabulary_references: analysis.vocabulary_references || null,
@@ -580,9 +584,25 @@ export const processAudio = async (req, res) => {
       finalScore = 0;
 
       const defaultMrOwiTips = normalizeMrOwiTips();
-      const defaultImprovementTips = JSON.stringify({
-        general: 'Silakan coba berbicara lebih keras atau periksa mikrofon Anda.',
-        mr_owi_tips: defaultMrOwiTips
+      const defaultImprovementTips = 'Silakan coba berbicara lebih keras atau periksa mikrofon Anda.';
+      
+      const analysis = {
+        overall_score: 0,
+        filler_words: [],
+        filler_count: 0,
+        repeated_words: [],
+        total_words: 0,
+        summary: 'Tidak ada suara atau percakapan yang terdeteksi pada rekaman audio.',
+        improvement_tips: defaultImprovementTips
+      };
+
+      const evaluation = buildPresentationEvaluation({
+        sessionId,
+        transcriptText: '',
+        duration,
+        analysis,
+        telemetry,
+        mrOwiTips: defaultMrOwiTips
       });
 
       const feedbackData = {
@@ -590,16 +610,17 @@ export const processAudio = async (req, res) => {
         overall_score: 0,
         summary: 'Tidak ada suara atau percakapan yang terdeteksi pada rekaman audio.',
         improvement_tips: defaultImprovementTips,
+        evaluation_json: evaluation,
         total_words: 0,
-        eye_score: 0,
+        eye_score: evaluation.summary.find(s => s.id === 'eyeContact')?.score ?? 0,
         voice_score: 0,
         filler_score: 100, // Default to good score if no fillers detected (no transcript)
         content_score: 0,
         confidence_score: 0,
         word_waste_score: 100, // Default to good score if no wasted words (no transcript)
         articulation_score: 0,
-        focus_duration: 0,
-        unfocus_duration: 0,
+        focus_duration: evaluation.details.eyeContact.focusDuration,
+        unfocus_duration: evaluation.details.eyeContact.unfocusDuration,
         avg_volume: null,
         tempo: 0,
         wpm: 0,
